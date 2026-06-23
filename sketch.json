@@ -1,0 +1,6 @@
+{
+  "cpu": {
+    "fqbn": "versioduo:samd:drum",
+    "name": "V2 snare"
+  }
+}
