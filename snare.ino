@@ -9,7 +9,7 @@
 #include <V2Solenoids.h>
 #include <V2Stepper.h>
 
-V2DEVICE_METADATA("com.versioduo.snare", 4, "versioduo:samd:drum");
+V2DEVICE_METADATA("com.versioduo.snare", 5, "versioduo:samd:drum");
 
 namespace {
   namespace LEDs {
@@ -769,7 +769,7 @@ auto setup() -> void {
   // frequency. The call needs to be after begin().
   Link.begin();
   setSerialPriority(&SerialPlug, 2);
-  setSerialPriority(&SerialSocket, 2);
+  setSerialPriority(&SerialSocket, 1);
 
   Power.begin();
 
