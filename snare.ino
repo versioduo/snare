@@ -9,7 +9,7 @@
 #include <V2Solenoids.h>
 #include <V2Stepper.h>
 
-V2DEVICE_METADATA("com.versioduo.snare", 5, "versioduo:samd:drum");
+V2DEVICE_METADATA("com.versioduo.snare", 6, "versioduo:samd:drum");
 
 namespace {
   namespace LEDs {
@@ -21,11 +21,11 @@ namespace {
     };
   }
 
-  V2LED::WS2812           LED(LEDs::size, PIN_LED_WS2812, &sercom2, SPI_PAD_0_SCK_1, PIO_SERCOM);
-  V2LED::WS2812           LEDExt(169, PIN_LED_WS2812_EXT, &sercom4, SPI_PAD_0_SCK_1, PIO_SERCOM);
-  V2Link::Port            Plug(&SerialPlug, PIN_SERIAL_PLUG_TX_ENABLE);
-  V2Link::Port            Socket(&SerialSocket, PIN_SERIAL_SOCKET_TX_ENABLE);
-  V2Base::Timer::Periodic Timer(2, 200000);
+  V2LED::WS2812<LEDs::size> LED(PIN_LED_WS2812, sercom2, SPI_PAD_0_SCK_1, PIO_SERCOM);
+  V2LED::WS2812<169>        LEDExt(PIN_LED_WS2812_EXT, sercom4, SPI_PAD_0_SCK_1, PIO_SERCOM);
+  V2Link::Port              Plug(&SerialPlug, PIN_SERIAL_PLUG_TX_ENABLE);
+  V2Link::Port              Socket(&SerialSocket, PIN_SERIAL_SOCKET_TX_ENABLE);
+  V2Base::Timer::Periodic   Timer(2, 200000);
 
   // Try to spread the power switching noise; run the timers with slightly
   // different periods, so they don't all start the rising edge of the PWM
@@ -94,20 +94,20 @@ namespace {
     auto handleNotify(float voltage) -> void override {
       // Power interruption, or commands without a power connection show yellow LEDs.
       if (voltage < config.min) {
-        LED.splashHSV(0.5, V2Colour::Yellow, 1, 0.25);
+        LED.flash({V2Colour::Yellow, 1, 0.25}, 0.5);
         return;
       }
 
       // Over-voltage shows red LEDs.
       if (voltage > config.max) {
-        LED.splashHSV(0.5, V2Colour::Red, 1, 1);
+        LED.flash({V2Colour::Red, 1, 1}, 0.5);
         return;
       }
 
       // The number of green LEDs shows the voltage.
       auto fraction{voltage / float(config.max)};
       auto n{ceil(float(LEDs::size - LEDs::Pulse) * fraction)};
-      LED.splashHSV(0.5, LEDs::Pulse, n, V2Colour::Green, 1, 0.25);
+      LED.flash({V2Colour::Green, 1, 0.25}, 0.5, LEDs::Pulse, n);
     }
   } Power;
 
@@ -159,40 +159,38 @@ namespace {
     }
 
     auto setLED(LEDMode state, uint8_t port = 0, float value = -1) -> void override {
-      if (LED.isRainbow())
+      if (LED.rainbow())
         return;
 
       switch (state) {
         case LEDMode::Off:
-          LED.setBrightness(LEDs::Pulse + port, 0);
+          LED.brightness(0, LEDs::Pulse + port);
           break;
 
         case LEDMode::Initialize:
-          LED.setHSV(LEDs::Button + 0, V2Colour::Cyan, 1, 0.25);
-          LED.setHSV(LEDs::Button + 1, V2Colour::Cyan, 1, 0.25);
+          LED.hsv({V2Colour::Cyan, 1, 0.25}, LEDs::Button + 0, 2);
           break;
 
         case LEDMode::Ready:
-          LED.setHSV(LEDs::Button + 0, V2Colour::Orange, 1, 0.25);
-          LED.setHSV(LEDs::Button + 1, V2Colour::Orange, 1, 0.25);
+          LED.hsv({V2Colour::Orange, 1, 0.25}, LEDs::Button + 0, 2);
           break;
 
         case LEDMode::Resistance:
           // Map the fraction of the configured resistance range from cyan to magenta.
-          LED.setHSV(LEDs::Pulse + port, float(V2Colour::Cyan) + (120.f * value), 1, 0.15);
+          LED.hsv({V2Colour::Cyan + (120.f * value), 1, 0.15}, LEDs::Pulse + port);
           break;
 
         case LEDMode::Power: {
           auto fraction{powf(value / 100.f, 8)};
-          LED.setHSV(LEDs::Pulse + port, V2Colour::Orange, 1, 0.3f + (0.3f * fraction));
+          LED.hsv({V2Colour::Orange, 1, 0.3f + (0.3f * fraction)}, LEDs::Pulse + port);
         } break;
 
         case LEDMode::ShortCircuit:
-          LED.setHSV(LEDs::Pulse + port, V2Colour::Red, 1, 1);
+          LED.hsv({V2Colour::Red, 1, 1}, LEDs::Pulse + port);
           break;
 
         case LEDMode::OverCurrent:
-          LED.splashHSV(0.2, V2Colour::Magenta, 1, 1);
+          LED.flash({V2Colour::Magenta, 1, 1}, 0.2);
           break;
       }
     }
@@ -244,16 +242,16 @@ namespace {
     auto handleMovement(Move move) -> void override {
       switch (move) {
         case Move::Forward:
-          LED.setHSV(LEDs::Step, V2Colour::Cyan, 1, 0.25);
+          LED.hsv({V2Colour::Cyan, 1, 0.25}, LEDs::Step);
           break;
 
         case Move::Reverse:
-          LED.setHSV(LEDs::Step, V2Colour::Orange, 1, 0.25);
+          LED.hsv({V2Colour::Orange, 1, 0.25}, LEDs::Step);
           break;
 
         case Move::Stop:
           if (_queue.position < 0) {
-            LED.setHSV(LEDs::Step, V2Colour::Green, 1, 0.15);
+            LED.hsv({V2Colour::Green, 1, 0.15}, LEDs::Step);
             break;
           }
 
@@ -340,9 +338,9 @@ namespace {
         return;
 
       if (v > 0.f)
-        LEDExt.setHSV(V2Colour::Orange, 0.8, 0.2f + (0.8f * v * _brightness));
+        LEDExt.hsv({V2Colour::Orange, 0.8, 0.2f + (0.8f * v * _brightness)});
       else
-        LEDExt.setBrightness(0);
+        LEDExt.brightness(0);
     }
 
     auto brightness() -> float {
@@ -761,9 +759,9 @@ auto setup() -> void {
   SPI.begin();
 
   LED.begin();
-  LED.setMaxBrightness(0.5);
+  LED.brightnessMax(0.5);
   LEDExt.begin();
-  LEDExt.setMaxBrightness(0.75);
+  LEDExt.brightnessMax(0.75);
 
   // Set the SERCOM interrupt priority, it requires a stable ~300 kHz interrupt
   // frequency. The call needs to be after begin().
