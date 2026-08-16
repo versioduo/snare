@@ -9,7 +9,7 @@
 #include <V2Solenoids.h>
 #include <V2Stepper.h>
 
-V2DEVICE_METADATA("com.versioduo.snare", 6, "versioduo:samd:drum");
+V2DEVICE_METADATA("com.versioduo.snare", 7, "versioduo:samd:drum");
 
 namespace {
   namespace LEDs {
@@ -23,8 +23,8 @@ namespace {
 
   V2LED::WS2812<LEDs::size> LED(PIN_LED_WS2812, sercom2, SPI_PAD_0_SCK_1, PIO_SERCOM);
   V2LED::WS2812<169>        LEDExt(PIN_LED_WS2812_EXT, sercom4, SPI_PAD_0_SCK_1, PIO_SERCOM);
-  V2Link::Port              Plug(&SerialPlug, PIN_SERIAL_PLUG_TX_ENABLE);
-  V2Link::Port              Socket(&SerialSocket, PIN_SERIAL_SOCKET_TX_ENABLE);
+  V2Link::Port              Plug(&SerialPlug, PIN_SERIAL_PLUG_TX_ENABLE, "plug");
+  V2Link::Port              Socket(&SerialSocket, PIN_SERIAL_SOCKET_TX_ENABLE, "socket");
   V2Base::Timer::Periodic   Timer(2, 200000);
 
   // Try to spread the power switching noise; run the timers with slightly
