@@ -9,8 +9,6 @@
 #include <V2Solenoids.h>
 #include <V2Stepper.h>
 
-V2DEVICE_METADATA("com.versioduo.snare", 7, "versioduo:samd:drum");
-
 namespace {
   namespace LEDs {
     enum Position {
@@ -21,6 +19,7 @@ namespace {
     };
   }
 
+  V2Device::Info            Info{V2DeviceInfo("com.versioduo.snare", 1, "versioduo:samd:drum")};
   V2LED::WS2812<LEDs::size> LED(PIN_LED_WS2812, sercom2, SPI_PAD_0_SCK_1, PIO_SERCOM);
   V2LED::WS2812<169>        LEDExt(PIN_LED_WS2812_EXT, sercom4, SPI_PAD_0_SCK_1, PIO_SERCOM);
   V2Link::Port              Plug(&SerialPlug, PIN_SERIAL_PLUG_TX_ENABLE, "plug");
@@ -208,9 +207,8 @@ namespace {
         {
           .ampere{0.5},
           .microstepsShift{3},
-          .inverse{true},
-          .home{.speed{500}, .stall{0.045}},
-          .speed{.min{100}, .max{5000}, .accel{32000}},
+          .home{.speed{200}, .stall{0.02}},
+          .speed{.min{100}, .max{4000}, .accel{16000}},
         },
         &Timer,
         &SPI,
@@ -262,75 +260,6 @@ namespace {
     }
   } Step;
 
-  class HiHat {
-  public:
-    auto speed() -> float {
-      return _speed;
-    }
-
-    auto speed(float fraction) {
-      _speed = fraction;
-    }
-
-    auto reset() {
-      _position = 0;
-      _speed    = 100.f / 127.f;
-      Step.hold(0);
-    }
-
-    // Move to position 0, then back to resting position 'open'.
-    auto home() {
-      Step.home(800, 40);
-      Step.queue(_step.closed, 0.5);
-      Step.hold(0.05);
-    }
-
-    auto position() -> float {
-      return _position;
-    }
-
-    auto position(float fraction) {
-      _position = fraction;
-      Step.queue(-1);
-      auto range{_step.open - _step.closed};
-      auto current{(Step.getPosition() - _step.closed) / range};
-      auto distance{fabs(_position - current)};
-      Step.setPosition(_step.closed + (range * fraction), distance * _speed);
-    }
-
-    auto open() {
-      Step.queue(-1);
-      Step.setPosition(_step.open, powf(_speed, 2));
-    }
-
-    auto close() {
-      Step.queue(-1);
-      Step.setPosition(_step.closed, powf(_speed, 2));
-    }
-
-    auto pedal(float fraction) {
-      Step.setPosition(_step.pedal.start + (_step.pedal.range * fraction), 1);
-      Step.queue(0, 1);
-    }
-
-  private:
-    float _position{};
-    float _speed{100.f / 127.f};
-
-    static constexpr struct {
-      float closed;
-      float open;
-      struct {
-        float start;
-        float range;
-      } pedal;
-    } _step{
-      .closed{50},
-      .open{350},
-      .pedal{.start{80}, .range{150}},
-    };
-  } HiHat;
-
   class {
   public:
     auto play(float v) {
@@ -351,7 +280,7 @@ namespace {
       _brightness = v;
 
       if (_rainbow > 0.f)
-        LEDExt.rainbow(1, 4.5f - (_rainbow * 4.f), 0.2f + (0.8f * _brightness));
+        LEDExt.rainbow(1, 8.f - (_rainbow * 5.f), 0.1f + (0.9f * _brightness));
     }
 
     auto rainbow() -> float {
@@ -361,7 +290,7 @@ namespace {
     auto rainbow(float v) {
       _rainbow = v;
       if (_rainbow > 0.f)
-        LEDExt.rainbow(1, 4.5f - (_rainbow * 4.f), 0.2f + (0.8f * _brightness));
+        LEDExt.rainbow(1, 8.f - (_rainbow * 5.f), 0.1f + (0.9f * _brightness));
       else
         LEDExt.reset();
     }
@@ -377,6 +306,40 @@ namespace {
     float _rainbow{};
   } Light;
 
+  class {
+  public:
+    auto position() -> float {
+      return _position;
+    }
+
+    auto position(float position) -> void {
+      _position = position;
+      Step.setPosition(_position * 25.f);
+    }
+
+    auto reset() -> void {
+      _position = 0;
+    }
+
+    auto home() -> void {
+      // Move past the detected home position for an increased pressure when positioning to 0.
+      static constexpr auto pressure{[] {
+        Step.initializePosition(20);
+        Step.setPosition(0);
+      }};
+
+      static constexpr auto home{[] { Step.home(200, 0, pressure); }};
+
+      // Move a few steps before calling home(). We do not move any steps back after the stall detection in home();
+      // from this position we cannot reliably detect a stall again.
+      Step.setPosition(25, 1, home);
+      Step.hold(0.3);
+    }
+
+  private:
+    float _position{};
+  } Snare;
+
   class Device : public V2Device {
   public:
     Device() : V2Device() {
@@ -384,13 +347,10 @@ namespace {
       metadata.product     = "V2 snare";
       metadata.description = "Stiff wires held under tension against the lower skin";
       metadata.home        = "https://versioduo.com/#snare";
-
-      system.download  = "https://versioduo.com/download";
-      system.configure = "https://versioduo.com/configure";
-
-      // https://github.com/versioduo/arduino-board-package/blob/main/boards.txt
-      usb.pid            = 0xe9f0;
-      usb.ports.standard = 8;
+      system.download      = "https://versioduo.com/download";
+      system.configure     = "https://versioduo.com/configure";
+      usb.pid              = 0xe9f0; // https://github.com/versioduo/arduino-board-package/blob/main/boards.txt
+      usb.ports.standard   = 8;
     }
 
     auto allNotesOff() {
@@ -401,18 +361,17 @@ namespace {
         return;
 
       if (!_ready || _force.trigger()) {
-        HiHat.home();
+        Snare.home();
         _ready = true;
       }
     }
 
   private:
     enum class CC {
-      Volume   = V2MIDI::CC::ChannelVolume,
-      Position = V2MIDI::CC::ModulationWheel,
-      Speed    = V2MIDI::CC::Controller3,
-      Light    = V2MIDI::CC::Controller89,
-      Rainbow  = V2MIDI::CC::Controller90,
+      Volume  = V2MIDI::CC::ChannelVolume,
+      Snare   = V2MIDI::CC::ModulationWheel,
+      Light   = V2MIDI::CC::Controller89,
+      Rainbow = V2MIDI::CC::Controller90,
     };
 
     uint8_t             _volume{100};
@@ -427,7 +386,7 @@ namespace {
       _force.reset();
       Light.reset();
       Pulse.reset();
-      HiHat.reset();
+      Snare.reset();
       Step.reset();
       Power.off();
       LED.reset();
@@ -521,28 +480,6 @@ namespace {
           Light.play(float(velocity) / 127.f);
           trigger(1, velocity);
           break;
-
-        case V2MIDI::GM::Percussion::ClosedHiHat:
-          Light.play(float(velocity) / 127.f);
-          if (velocity > 0)
-            HiHat.close();
-          trigger(0, velocity);
-          break;
-
-        case V2MIDI::GM::Percussion::PedalHiHat:
-          Light.play(float(velocity) / 127.f);
-          if (velocity > 0)
-            HiHat.pedal(float(velocity) / 127.f);
-          else
-            HiHat.close();
-          break;
-
-        case V2MIDI::GM::Percussion::OpenHiHat:
-          Light.play(float(velocity) / 127.f);
-          if (velocity > 0)
-            HiHat.open();
-          trigger(0, velocity);
-          break;
       }
     }
 
@@ -568,12 +505,8 @@ namespace {
           _volume = value;
           break;
 
-        case uint8_t(CC::Position):
-          HiHat.position(float(value) / 127.f);
-          break;
-
-        case uint8_t(CC::Speed):
-          HiHat.speed(float(value) / 127.f);
+        case uint8_t(CC::Snare):
+          Snare.position(float(value) / 127.f);
           break;
 
         case uint8_t(CC::Light):
@@ -605,15 +538,9 @@ namespace {
       }
       {
         JsonObject jsonController{jsonControllers.add<JsonObject>()};
-        jsonController["name"]   = "Position";
-        jsonController["number"] = uint8_t(CC::Position);
-        jsonController["value"]  = uint8_t(HiHat.position() * 127.f);
-      }
-      {
-        JsonObject jsonController{jsonControllers.add<JsonObject>()};
-        jsonController["name"]   = "Speed";
-        jsonController["number"] = uint8_t(CC::Speed);
-        jsonController["value"]  = uint8_t(HiHat.speed() * 127.f);
+        jsonController["name"]   = "Snare";
+        jsonController["number"] = uint8_t(CC::Snare);
+        jsonController["value"]  = uint8_t(Snare.position() * 127.f);
       }
       {
         JsonObject jsonController{jsonControllers.add<JsonObject>()};
@@ -631,28 +558,13 @@ namespace {
       JsonArray jsonNotes{json["notes"].to<JsonArray>()};
       {
         JsonObject jsonNote{jsonNotes.add<JsonObject>()};
-        jsonNote["name"]   = "Trigger";
+        jsonNote["name"]   = "Trigger 1";
         jsonNote["number"] = V2MIDI::C(3);
       }
       {
         JsonObject jsonNote{jsonNotes.add<JsonObject>()};
-        jsonNote["name"]   = "Damper";
+        jsonNote["name"]   = "Trigger 2";
         jsonNote["number"] = V2MIDI::Cs(3);
-      }
-      {
-        JsonObject jsonNote{jsonNotes.add<JsonObject>()};
-        jsonNote["name"]   = "Closed";
-        jsonNote["number"] = V2MIDI::GM::Percussion::ClosedHiHat;
-      }
-      {
-        JsonObject jsonNote{jsonNotes.add<JsonObject>()};
-        jsonNote["name"]   = "Pedal";
-        jsonNote["number"] = V2MIDI::GM::Percussion::PedalHiHat;
-      }
-      {
-        JsonObject jsonNote{jsonNotes.add<JsonObject>()};
-        jsonNote["name"]   = "Open";
-        jsonNote["number"] = V2MIDI::GM::Percussion::OpenHiHat;
       }
     }
 
