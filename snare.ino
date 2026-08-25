@@ -207,7 +207,7 @@ namespace {
         {
           .ampere{0.5},
           .microstepsShift{3},
-          .home{.speed{200}, .stall{0.02}},
+          .home{.speed{200}, .stall{0.04}},
           .speed{.min{100}, .max{4000}, .accel{16000}},
         },
         &Timer,
@@ -266,10 +266,14 @@ namespace {
       if (_rainbow > 0.f)
         return;
 
-      if (v > 0.f)
-        LEDExt.hsv({V2Colour::Orange, 0.8, 0.2f + (0.8f * v * _brightness)});
-      else
+      if (v > 0.f) {
+        // Dim to warm.
+        auto saturation{0.8f + (0.2f * (1.f - v))};
+        auto brightness{0.3f + (0.7f * v * _brightness)};
+        LEDExt.hsv({V2Colour::Orange, saturation, brightness});
+      } else {
         LEDExt.brightness(0);
+      }
     }
 
     auto brightness() -> float {
@@ -324,16 +328,16 @@ namespace {
     auto home() -> void {
       // Move past the detected home position for an increased pressure when positioning to 0.
       static constexpr auto pressure{[] {
-        Step.initializePosition(20);
-        Step.setPosition(0);
+        Step.initializePosition(8);
+        Step.setPosition(0, 0.01);
       }};
 
       static constexpr auto home{[] { Step.home(200, 0, pressure); }};
 
       // Move a few steps before calling home(). We do not move any steps back after the stall detection in home();
       // from this position we cannot reliably detect a stall again.
-      Step.setPosition(25, 1, home);
-      Step.hold(0.3);
+      Step.setPosition(20, 0.01, home);
+      Step.hold(0.2);
     }
 
   private:
@@ -444,11 +448,11 @@ namespace {
     auto trigger(uint8_t port, uint8_t velocity) {
       static constexpr struct {
         struct {
-          float watts{0.8};
+          float watts{0.6};
           float seconds{0.035};
         } min;
         struct {
-          float watts{6};
+          float watts{8};
           float seconds{0.015};
         } max;
       } range;
@@ -647,11 +651,6 @@ namespace {
 
         case 1:
           Device.reset();
-          if (!Power.on())
-            break;
-
-          // With the cymbals unlocked, this moves the shaft to the center position.
-          Step.home(800, 350);
           break;
       }
     }
